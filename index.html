@@ -4,21 +4,156 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>학교 분실물 찾기 센터</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; text-align: center; }
-    .box { border: 2px solid #4CAF50; padding: 20px; border-radius: 10px; margin-top: 20px; }
+    body { font-family: 'Noto Sans KR', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; }
+    h1 { color: #333; text-align: center; }
+    .auth-box { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; text-align: right; }
+    .form-box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; display: none; }
+    .item-list { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    input, button { padding: 8px 12px; margin: 4px; border: 1px solid #ccc; border-radius: 4px; }
+    button { background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+    button:hover { background-color: #45a049; }
+    .delete-btn { background-color: #f44336; }
+    .delete-btn:hover { background-color: #da190b; }
+    .item-card { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center; }
   </style>
 </head>
 <body>
 
   <h1>🔍 학교 분실물 찾기 센터</h1>
-  <p>웹사이트가 성공적으로 연결되었습니다!</p>
 
-  <div class="box">
-    <h3>📌 연동 테스트 화면</h3>
-    <p>학생: 목록만 볼 수 있습니다.</p>
-    <button onclick="alert('교사 로그인 기능 준비 중')">교사 로그인</button>
+  <!-- 로그인/로그아웃 영역 -->
+  <div class="auth-box">
+    <span id="user-status">학생 접속 모드 (조회만 가능)</span>
+    <input type="email" id="email" placeholder="교사 이메일" style="display:inline-block;">
+    <input type="password" id="password" placeholder="비밀번호" style="display:inline-block;">
+    <button id="login-btn" onclick="login()">교사 로그인</button>
+    <button id="logout-btn" onclick="logout()" style="display:none;">로그아웃</button>
   </div>
 
+  <!-- 분실물 등록 폼 (교사만 표시) -->
+  <div class="form-box" id="admin-form">
+    <h3>📢 새 분실물 등록 (교사 전용)</h3>
+    <input type="text" id="item-title" placeholder="물품명 (예: 파란색 지갑)">
+    <input type="text" id="item-location" placeholder="보관 장소 (예: 교무실)">
+    <button onclick="addItem()">등록하기</button>
+  </div>
+
+  <!-- 분실물 목록 (누구나 표시) -->
+  <div class="item-list">
+    <h3>📋 습득 물품 목록</h3>
+    <div id="items-container">불러오는 중...</div>
+  </div>
+
+  <script>
+    // ⚠️ Supabase 연결 정보 (추후 본인의 Supabase 키값으로 변경 필요)
+    const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
+    const SUPABASE_KEY = 'YOUR_ANON_KEY';
+    
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let isTeacher = false;
+
+    // 초기화 및 데이터 불러오기
+    window.onload = function() {
+      fetchItems();
+    };
+
+    // 분실물 목록 조회
+    async function fetchItems() {
+      const container = document.getElementById('items-container');
+      const { data, error } = await supabase.from('lost_items').select('*').order('created_at', { ascending: false });
+
+      if (error) {
+        container.innerHTML = '<p>데이터베이스 연결 전입니다. (Supabase 설정 필요)</p>';
+        return;
+      }
+
+      if (data.length === 0) {
+        container.innerHTML = '<p>현재 등록된 분실물이 없습니다.</p>';
+        return;
+      }
+
+      container.innerHTML = '';
+      data.forEach(item => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'item-card';
+        itemDiv.innerHTML = `
+          <div>
+            <strong>${item.title}</strong> - 보관장소: ${item.location}
+          </div>
+          ${isTeacher ? `<button class="delete-btn" onclick="deleteItem(${item.id})">삭제</button>` : ''}
+        `;
+        container.appendChild(itemDiv);
+      });
+    }
+
+    // 교사 로그인
+    async function login() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+      if (error) {
+        alert('로그인 실패: ' + error.message);
+      } else {
+        alert('교사 권한으로 로그인되었습니다.');
+        setTeacherMode(true);
+      }
+    }
+
+    // 로그아웃
+    async function logout() {
+      await supabase.auth.signOut();
+      alert('로그아웃되었습니다.');
+      setTeacherMode(false);
+    }
+
+    // 권한에 따른 UI 전환
+    function setTeacherMode(teacher) {
+      isTeacher = teacher;
+      document.getElementById('admin-form').style.display = teacher ? 'block' : 'none';
+      document.getElementById('login-btn').style.display = teacher ? 'none' : 'inline-block';
+      document.getElementById('logout-btn').style.display = teacher ? 'inline-block' : 'none';
+      document.getElementById('email').style.display = teacher ? 'none' : 'inline-block';
+      document.getElementById('password').style.display = teacher ? 'none' : 'inline-block';
+      document.getElementById('user-status').innerText = teacher ? '교사 로그인됨' : '학생 접속 모드 (조회만 가능)';
+      fetchItems();
+    }
+
+    // 분실물 등록 (교사 전용)
+    async function addItem() {
+      const title = document.getElementById('item-title').value;
+      const location = document.getElementById('item-location').value;
+
+      if (!title || !location) {
+        alert('물품명과 보관 장소를 입력해 주세요.');
+        return;
+      }
+
+      const { error } = await supabase.from('lost_items').insert([{ title, location }]);
+      if (error) {
+        alert('등록 실패: ' + error.message);
+      } else {
+        document.getElementById('item-title').value = '';
+        document.getElementById('item-location').value = '';
+        fetchItems();
+      }
+    }
+
+    // 분실물 삭제 (교사 전용)
+    async function deleteItem(id) {
+      if (!confirm('정말 삭제하시겠습니까?')) return;
+
+      const { error } = await supabase.from('lost_items').delete().eq('id', id);
+      if (error) {
+        alert('삭제 실패: ' + error.message);
+      } else {
+        fetchItems();
+      }
+    }
+  </script>
 </body>
 </html>
